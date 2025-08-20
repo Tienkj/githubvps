@@ -3,6 +3,10 @@
 ⚠️ Đây chỉ là hướng dẫn. GitHub Actions không phải VPS 24/7. 
 Sử dụng sai mục đích có thể bị GitHub ban account. 
 Chỉ chạy thử CI/CD, deploy hoặc serverless free tier.
+# Lưu ý: **đặt cảnh báo rõ ràng**: “⚠️  code này trên GitHub Actions, cực kỳ nguy hiểm!”.  
+
+---
+
 # CODE:
 ```yaml
 name: TOOL TEST
@@ -55,8 +59,5 @@ jobs:
       - name: keep
         run: Start-Sleep -Seconds 21600
  ...
-- Lưu ý: **đặt cảnh báo rõ ràng**: “⚠️  code này trên GitHub Actions, cực kỳ nguy hiểm!”.  
-
----
 
 

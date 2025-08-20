@@ -4,6 +4,7 @@
 Sử dụng sai mục đích có thể bị GitHub ban account. 
 Chỉ chạy thử CI/CD, deploy hoặc serverless free tier.
 # CODE:
+```yaml
 name: TOOL TEST
 
 on:
@@ -53,3 +54,9 @@ jobs:
 
       - name: keep
         run: Start-Sleep -Seconds 21600
+ ...
+- Lưu ý: **đặt cảnh báo rõ ràng**: “⚠️  code này trên GitHub Actions, cực kỳ nguy hiểm!”.  
+
+---
+
+

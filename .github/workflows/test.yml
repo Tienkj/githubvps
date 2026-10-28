@@ -1,1 +1,127 @@
-dán code vào đây nó nằm ở phải bên ngoài 
+
+name: Temporary Windows SSH Build Server
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ssh-server:
+    runs-on: windows-latest
+    timeout-minutes: 350
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          architecture: "x64"
+
+      - name: Configure SSH and build tools
+        shell: pwsh
+        env:
+          SSH_PUBLIC_KEY: ${{ secrets.SSH_PUBLIC_KEY }}
+        run: |
+          if (-not $env:SSH_PUBLIC_KEY) {
+            throw "Add SSH_PUBLIC_KEY in repository Actions secrets."
+          }
+
+          $ErrorActionPreference = "Stop"
+
+          Add-WindowsCapability -Online `
+            -Name OpenSSH.Server~~~~0.0.1.0
+
+          Start-Service sshd
+          Set-Service -Name sshd -StartupType Automatic
+
+          $sshDir = "$env:ProgramData\ssh"
+          $keyFile = "$sshDir\administrators_authorized_keys"
+
+          # Use a dedicated standard account rather than Administrator.
+          $password = [System.Web.Security.Membership]::GeneratePassword(32, 8)
+          $securePassword = ConvertTo-SecureString $password -AsPlainText -Force
+
+          New-LocalUser -Name "builder" `
+            -Password $securePassword `
+            -AccountNeverExpires | Out-Null
+
+          Add-LocalGroupMember -Group "Users" -Member "builder"
+
+          $userKeyFile = "C:\Users\builder\.ssh\authorized_keys"
+          New-Item -ItemType Directory `
+            -Force -Path "C:\Users\builder\.ssh" | Out-Null
+
+          Set-Content -Path $userKeyFile `
+            -Value $env:SSH_PUBLIC_KEY -Encoding ascii
+
+          icacls "C:\Users\builder\.ssh" /inheritance:r
+          icacls "C:\Users\builder\.ssh" /grant:r `
+            "builder:(OI)(CI)F" "SYSTEM:(OI)(CI)F"
+
+          # Ensure sshd permits public-key authentication.
+          $config = "$sshDir\sshd_config"
+          Add-Content $config "`nPubkeyAuthentication yes"
+          Add-Content $config "`nPasswordAuthentication no"
+          Add-Content $config "`nAllowUsers builder"
+
+          Restart-Service sshd
+
+          python -m pip install --upgrade pip
+          python -m pip install pyinstaller pyarmor
+
+          Write-Host "SSH server ready."
+          Write-Host "Python:"
+          python --version
+
+      - name: Start Cloudflare Quick Tunnel
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $url = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe"
+          $exe = "$env:RUNNER_TEMP\cloudflared.exe"
+
+          Invoke-WebRequest -Uri $url -OutFile $exe
+
+          # Keep the tunnel process alive and capture its temporary URL.
+          $log = "$env:RUNNER_TEMP\cloudflared.log"
+          $proc = Start-Process -FilePath $exe `
+            -ArgumentList "tunnel --url tcp://localhost:22" `
+            -PassThru -WindowStyle Hidden `
+            -RedirectStandardOutput $log `
+            -RedirectStandardError "$env:RUNNER_TEMP\cloudflared.err"
+
+          "Tunnel PID: $($proc.Id)"
+
+          for ($i = 0; $i -lt 60; $i++) {
+            Start-Sleep -Seconds 2
+            $text = ""
+            if (Test-Path $log) {
+              $text = Get-Content $log -Raw
+            }
+
+            if ($text -match 'https?://[a-zA-Z0-9-]+\.trycloudflare\.com') {
+              Write-Host "Quick Tunnel URL found:"
+              Write-Host $Matches[0]
+              break
+            }
+          }
+
+          Write-Host "Tunnel output:"
+          if (Test-Path $log) { Get-Content $log }
+          if (Test-Path "$env:RUNNER_TEMP\cloudflared.err") {
+            Get-Content "$env:RUNNER_TEMP\cloudflared.err"
+          }
+
+          # Keep the job alive while you connect.
+          while ($true) {
+            if ($proc.HasExited) {
+              throw "Cloudflare tunnel exited."
+            }
+            Start-Sleep -Seconds 15
+          }

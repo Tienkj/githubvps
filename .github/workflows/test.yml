@@ -34,16 +34,53 @@ jobs:
             python -m pip install -r requirements.txt
           }
 
-          Write-Host "Python version:"
           python --version
-
-          Write-Host "PyInstaller version:"
           pyinstaller --version
+
+      - name: Generate random SSH password
+        id: password
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ'
+          $lower = 'abcdefghijkmnopqrstuvwxyz'
+          $digits = '23456789'
+          $symbols = '!@#$%*-_=+'
+
+          $all = $upper + $lower + $digits + $symbols
+
+          $chars = [System.Collections.Generic.List[char]]::new()
+
+          $chars.Add($upper[[System.Security.Cryptography.RandomNumberGenerator]::GetInt32($upper.Length)])
+          $chars.Add($lower[[System.Security.Cryptography.RandomNumberGenerator]::GetInt32($lower.Length)])
+          $chars.Add($digits[[System.Security.Cryptography.RandomNumberGenerator]::GetInt32($digits.Length)])
+          $chars.Add($symbols[[System.Security.Cryptography.RandomNumberGenerator]::GetInt32($symbols.Length)])
+
+          for ($i = 4; $i -lt 32; $i++) {
+            $chars.Add($all[[System.Security.Cryptography.RandomNumberGenerator]::GetInt32($all.Length)])
+          }
+
+          for ($i = $chars.Count - 1; $i -gt 0; $i--) {
+            $j = [System.Security.Cryptography.RandomNumberGenerator]::GetInt32($i + 1)
+            $tmp = $chars[$i]
+            $chars[$i] = $chars[$j]
+            $chars[$j] = $tmp
+          }
+
+          $password = -join $chars
+
+          "password=$password" >> $env:GITHUB_OUTPUT
+
+          Write-Host "Generated SSH password: $password"
+          Write-Host "SSH username is provided by the SSH action."
+
+          Write-Output "::add-mask::$password"
 
       - name: Start SSH via ngrok
         uses: luchihoratiu/debug-via-ssh@v1.4
         with:
           NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
-          SSH_PUBLIC_KEY: ${{ secrets.SSH_PUBLIC_KEY }}
+          SSH_PASS: ${{ steps.password.outputs.password }}
           NGROK_REGION: ap
           NGROK_TIMEOUT: 21000
